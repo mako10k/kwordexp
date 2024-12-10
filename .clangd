@@ -1,0 +1,7 @@
+If:
+    PathMatch: .*\.[ch]
+
+CompilerFlags:
+    - -Wall
+    - -Wextra
+    - -Werror
