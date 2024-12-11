@@ -18,7 +18,8 @@
 			"packages" : [
 				"clang",
 				"automake",
-				"clangd"
+				"clangd",
+				"libtool"
 			]
 		}
 	}

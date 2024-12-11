@@ -1,4 +1,10 @@
-kwordexp_la_SOURCES = kwordexp.c
-noinst_HEADERS = kwordexp.h
+lib_LTLIBRARIES = libkwordexp.la libkio.la
 
-AM_CFLAGS = -Wall -Wextra -Werror -I../include
+libkwordexp_la_SOURCES = kwordexp.c
+libkwordexp_la_LDADD = libkio.la
+
+libkio_la_SOURCES = kio.c
+
+noinst_HEADERS = kwordexp.h kio.h
+
+AM_CFLAGS = -Wall -Wextra -Werror -flto

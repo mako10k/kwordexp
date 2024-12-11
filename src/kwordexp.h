@@ -6,3 +6,4 @@
 
 #include "../include/kwordexp.h"
 
+typedef struct kwordexp_internal kwordexp_internal_t;

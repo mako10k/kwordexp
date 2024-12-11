@@ -1,6 +1,5 @@
 #include "kwordexp.h"
-#include "kstr.h"
-#include "kstrs.h"
+#include "kio.h"
 #include <ctype.h>
 #include <errno.h>
 #include <stdio.h>
@@ -12,425 +11,447 @@
 #define KWORDEXP_PARSE_ERROR -1
 #define KWORDEXP_PARSE_SUCCESS 0
 
-/**
- * Free the memory allocated by kwordexp.
- *
- * @param we The kwordexp_t object.
- * @return 0 on success, -1 on error.
- */
-static int kwordfree_internal(kwordexp_t *we) {
-  if (we->kwe_wordv) {
-    for (size_t i = 0; i < we->kwe_wordc; i++) {
-      free((void *)we->kwe_wordv[i]);
-    }
-    free(we->kwe_wordv);
-  }
-  return 0;
+typedef enum kwei_err {
+  KENONE = 0,
+  KESYSTEM = 1,
+  KESYNTAX = 2,
+} kwei_err_t;
+
+struct kwordexp_internal {
+  kwordexp_t *kwei_pwe;
+  kin_t *kwei_pin;
+  kout_t *kwei_pout;
+  int kwei_flags;
+  int kwei_inword;
+  int kwei_errno;
+  kwei_err_t kwei_errex;
+  int kwei_status;
+};
+
+static void kwe_free(kwordexp_t *pkwe) __attribute__((nonnull(1)));
+static kwordexp_internal_t kwei_init(kwordexp_t *pkwe, kin_t *pkin,
+                                     kout_t *pkout, int flags)
+    __attribute__((warn_unused_result, nonnull(1)));
+
+static int kwei_parse_squote(kwordexp_internal_t *pkwei)
+    __attribute__((warn_unused_result, nonnull(1)));
+static int kwei_exec(kwordexp_internal_t *pkwei, const char **argv, FILE *ofp)
+    __attribute__((warn_unused_result, nonnull(1, 2, 3)));
+static int kwei_parse_var_paren(kwordexp_internal_t *pkwei)
+    __attribute__((warn_unused_result, nonnull(1)));
+static const char *kwei_get_ifs(kwordexp_t *pkwe)
+    __attribute__((warn_unused_result, nonnull(1)));
+static int kwei_push_word(kwordexp_internal_t *pkwei)
+    __attribute__((warn_unused_result, nonnull(1)));
+static int kwei_var_asterisk(kwordexp_internal_t *pkwei)
+    __attribute__((warn_unused_result, nonnull(1)));
+static int kwei_var_atto(kwordexp_internal_t *pkwei)
+    __attribute__((warn_unused_result, nonnull(1)));
+static int kwei_var_num(kwordexp_internal_t *pkwei, int ch)
+    __attribute__((warn_unused_result, nonnull(1)));
+static int kwei_parse_var(kwordexp_internal_t *pkwei)
+    __attribute__((warn_unused_result, nonnull(1)));
+static int kwei_parse(kwordexp_internal_t *pkwei)
+    __attribute__((warn_unused_result, nonnull(1)));
+
+static kwordexp_internal_t kwei_init(kwordexp_t *pkwe, kin_t *pkin,
+                                     kout_t *pkout, int flags) {
+  kwordexp_internal_t kwei;
+  kwei.kwei_pwe = pkwe;
+  kwei.kwei_pin = pkin;
+  kwei.kwei_pout = pkout;
+  kwei.kwei_flags = flags;
+  kwei.kwei_inword = 0;
+  kwei.kwei_errno = 0;
+  kwei.kwei_errex = KENONE;
+  kwei.kwei_status = KWORDEXP_PARSE_SUCCESS;
+  return kwei;
 }
 
-/**
- * Parse single quoted string.
- *
- * @param pstr Pointer to the string to parse.
- * @param kstr The kstr_t object to store the parsed string.
- * @return KWORDEXP_PARSE_WORD on success, KWORDEXP_PARSE_ERROR on error.
- */
-static int kwordexp_parse_squote(const char **pstr, kstrs_t *kstrs) {
-  const char *str = *pstr;
+static void kwe_free(kwordexp_t *pkwe) {
+  if (pkwe->kwe_wordv != NULL) {
+    free(pkwe->kwe_wordv);
+    pkwe->kwe_wordv = NULL;
+  }
+}
+
+static int kwei_parse_squote(kwordexp_internal_t *pkwei) {
   int ret;
   while (1) {
-    int ch = *str;
+    int ch = kin_getc(pkwei->kwei_pin);
     switch (ch) {
 
-    case '\0':
+    case EOF:
+      pkwei->kwei_errno = EINVAL;
+      pkwei->kwei_errex = KESYNTAX;
+      pkwei->kwei_status = KWORDEXP_PARSE_ERROR;
       return KWORDEXP_PARSE_ERROR;
 
     case '\'':
-      *pstr = ++str;
       return KWORDEXP_PARSE_SUCCESS;
 
     default:
-      ret = kstr_put(&kstrs->kstr, str, 1);
-      if (ret == -1)
+      ret = kout_putc(pkwei->kwei_pout, ch);
+      if (ret == -1) {
         return KWORDEXP_PARSE_ERROR;
-      str++;
+      }
     }
   }
 }
 
-static int kwordexp_exec(const char **pstr, kstr_t *kstr, kstrs_t *kstrs,
-                         kwordexp_t *we) {
-  const char *str = *pstr;
-  int ret;
-  const char **words = kstrs->strv;
-  size_t wordc = kstrs->strc;
-  char **argv = malloc((wordc + 1) * sizeof(char *));
-  if (argv == NULL) {
+static int kwei_exec(kwordexp_internal_t *pkwei, const char **argv, FILE *ofp) {
+  kwordexp_exec_t exec = pkwei->kwei_pwe->kwe_exec;
+  if (exec == NULL)
+    exec = kwordexp_exec_default;
+  return exec(pkwei->kwei_pwe->kwe_data, argv, ofp);
+}
+
+static int kwei_parse_var_paren(kwordexp_internal_t *pkwei) {
+  kout_t kout_cmd = kout_init(NULL, NULL, 0);
+  kwordexp_t kwe_cmd = *pkwei->kwei_pwe;
+  kwe_cmd.kwe_wordv = NULL;
+  kwe_cmd.kwe_wordc = 0;
+  kwordexp_internal_t kwei_cmd =
+      kwei_init(&kwe_cmd, pkwei->kwei_pin, &kout_cmd, pkwei->kwei_flags);
+  int ret = kwei_parse(&kwei_cmd);
+  if (ret == KWORDEXP_PARSE_ERROR) {
+    int err = errno;
+    (void)kout_destroy(&kout_cmd);
+    kwe_free(&kwe_cmd);
+    errno = err;
+    return KWORDEXP_PARSE_ERROR;
+  }
+
+  int ch;
+
+  // Skip trailing spaces
+  do {
+    ch = kin_getc(pkwei->kwei_pin);
+  } while (isspace(ch));
+
+  if (ch != ')') {
+    pkwei->kwei_errno = EINVAL;
+    pkwei->kwei_status = KWORDEXP_PARSE_ERROR;
+    (void)kout_destroy(&kout_cmd);
+    kwe_free(&kwe_cmd);
+    return KWORDEXP_PARSE_ERROR;
+  }
+
+  FILE *ofp = kout_getfp(pkwei->kwei_pout);
+  if (ofp == NULL) {
+    kout_destroy(&kout_cmd);
+    kwe_free(&kwe_cmd);
+    return KWORDEXP_PARSE_ERROR;
+  }
+  ret = kwei_exec(pkwei, kwei_cmd.kwei_pwe->kwe_wordv, ofp);
+  int err = errno;
+  kout_destroy(&kout_cmd);
+  kwordfree(&kwe_cmd);
+  if (ret == -1) {
+    errno = err;
+    return KWORDEXP_PARSE_ERROR;
+  }
+  return KWORDEXP_PARSE_SUCCESS;
+}
+
+static const char *kwei_get_ifs(kwordexp_t *pkwe) {
+  void *data = pkwe->kwe_data;
+  kwordexp_getenv_t getenv = pkwe->kwe_getenv;
+  if (getenv == NULL)
+    getenv = kwordexp_getenv_default;
+  const char *ifs = getenv(data, "IFS");
+  if (ifs == NULL)
+    ifs = " \t\n";
+  return ifs;
+}
+
+static int kwei_push_word(kwordexp_internal_t *pkwei) {
+  kwordexp_t *pkwe = pkwei->kwei_pwe;
+  size_t wordc = pkwe->kwe_wordc + 1;
+  const char **wordv = realloc(pkwe->kwe_wordv, (wordc + 2) * sizeof(char *));
+  if (wordv == NULL)
     return -1;
-  }
-  for (size_t i = 0; i < wordc; i++) {
-    argv[i] = (char *)words[i];
-  }
-  argv[wordc] = NULL;
-  char *output = NULL;
-  int status = we->kwe_exec(we->kwe_data, (const char **)argv, &output);
-  free(argv);
-  if (status == -1) {
-    return -1;
-  }
-  we->last_status = status;
-  if (output != NULL) {
-    ret = kstr_put(kstr, output, strlen(output));
-    free(output);
-    if (ret == -1) {
-      return -1;
-    }
-  }
-  *pstr = str;
+
+  (void)kout_close(pkwei->kwei_pout);
+  char *word = pkwei->kwei_pout->kout_obuf;
+  pkwei->kwei_pout->kout_obuf = NULL;
+  kout_destroy(pkwei->kwei_pout);
+
+  pkwe->kwe_wordv = wordv;
+  pkwe->kwe_wordv[wordc] = word;
+  pkwe->kwe_wordv[wordc + 1] = NULL;
+  pkwe->kwe_wordc = wordc;
   return 0;
 }
 
-static int kwordexp_parse_words(const char **pstr, kstrs_t *kstrs,
-                                kwordexp_t *we, int flags);
-
-static int kwordexp_parse_var_paren(const char **pstr, kstr_t *kstr,
-                                    kwordexp_t *we, int flags) {
-  const char *str = *pstr;
-  kstrs_t kstrs_cmd;
-  int ret = kstrs_init(&kstrs_cmd);
-  if (ret == -1) {
-    return KWORDEXP_PARSE_ERROR;
-  }
-  ret = kwordexp_parse_words(&str, &kstrs_cmd, we, flags);
-  if (ret == KWORDEXP_PARSE_ERROR) {
-    kstrs_destroy(&kstrs_cmd);
-    return KWORDEXP_PARSE_ERROR;
-  }
-  while (isspace(*str))
-    str++;
-
-  if (*str != ')') {
-    kstrs_destroy(&kstrs_cmd);
-    return KWORDEXP_PARSE_ERROR;
-  }
-  str++;
-
-  ret = kwordexp_exec(&str, kstr, &kstrs_cmd, we);
-  kstrs_destroy(&kstrs_cmd);
-  if (ret == -1) {
-    return KWORDEXP_PARSE_ERROR;
-  }
-
-  *pstr = str;
-  return KWORDEXP_PARSE_SUCCESS;
-}
-
-static int kwordexp_parse_var(const char **pstr, kstr_t *kstr, kwordexp_t *we,
-                              int flags) {
-  const char *str = *pstr;
-  int ret;
-  int ch = *str;
-  kstr_t kstr_var;
-  switch (ch) {
-
-  case '\0':
-    return KWORDEXP_PARSE_ERROR;
-
-  case '{':
-    str++;
-    return kwordexp_parse_var_brace(&str, kstr, we, flags);
-
-  case '(':
-    str++;
-    return kwordexp_parse_var_paren(&str, kstr, we, flags);
-
-  case '$': {
-    ret = kstr_init(&kstr_var, NULL, 0);
-    if (ret == -1) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    ret = kwordexp_parse_var(&str, &kstr_var, we, flags);
-    if (ret == KWORDEXP_PARSE_ERROR) {
-      kstr_destroy(kstr_var);
-      return KWORDEXP_PARSE_ERROR;
-    }
-    const char *value = we->kwe_getenv(we->kwe_data, kstr_var.buf);
-    kstr_destroy(kstr_var);
-    if (value == NULL) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    ret = kstr_put(kstr, value, strlen(value));
-    if (ret == -1) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    *pstr = str;
-    return KWORDEXP_PARSE_SUCCESS;
-  }
-
-  case '0' ... '9': {
-    // Parse positional parameter
-    char *endptr;
-    long int index = strtol(str, &endptr, 10);
-    if (endptr == str) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    if (index < 0 || index >= we->kwe_wordc) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    ret = kstr_put(kstr, we->kwe_wordv[index], strlen(we->kwe_wordv[index]));
-    if (ret == -1) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    str = endptr;
-    *pstr = str;
-    return KWORDEXP_PARSE_SUCCESS;
-  }
-
-  case '*':
-  case '@': {
-    // Parse all positional parameters
-    for (size_t i = 0; i < we->kwe_wordc; i++) {
-      ret = kstr_put(kstr, we->kwe_wordv[i], strlen(we->kwe_wordv[i]));
-      if (ret == -1) {
+static int kwei_var_asterisk(kwordexp_internal_t *pkwei) {
+  const char *ifs = kwei_get_ifs(pkwei->kwei_pwe);
+  for (size_t i = 1; i < pkwei->kwei_pwe->kwe_argc; i++) {
+    if (i > 1) {
+      int ret = kout_putc(pkwei->kwei_pout, *ifs);
+      if (ret == -1)
         return KWORDEXP_PARSE_ERROR;
-      }
-      if (i < we->kwe_wordc - 1) {
-        ret = kstr_put(kstr, " ", 1);
-        if (ret == -1) {
-          return KWORDEXP_PARSE_ERROR;
-        }
-      }
     }
-    *pstr = str + 1;
-    return KWORDEXP_PARSE_SUCCESS;
-  }
-
-  case '?': {
-    // Parse the exit status of the last command
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%d", we->last_status);
-    ret = kstr_put(kstr, buf, strlen(buf));
-    if (ret == -1) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    *pstr = str + 1;
-    return KWORDEXP_PARSE_SUCCESS;
-  }
-
-  case '!': {
-    // Parse the process ID of the shell
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%d", getpid());
-    ret = kstr_put(kstr, buf, strlen(buf));
-    if (ret == -1) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    *pstr = str + 1;
-    return KWORDEXP_PARSE_SUCCESS;
-  }
-
-  case '#': {
-    // Parse the number of positional parameters
-    char buf[16];
-    snprintf(buf, sizeof(buf), "%zu", we->kwe_wordc);
-    ret = kstr_put(kstr, buf, strlen(buf));
-    if (ret == -1) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    *pstr = str + 1;
-    return KWORDEXP_PARSE_SUCCESS;
-  }
-
-  default:
-    if (!isalpha(ch) && ch != '_') {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    ret = kstr_put(&kstr_var, str, 1);
+    int ret = kout_printf(pkwei->kwei_pout, "%s", pkwei->kwei_pwe->kwe_argv[i]);
     if (ret == -1)
       return KWORDEXP_PARSE_ERROR;
-    str++;
-    while (1) {
-      ch = *str;
-      if (!isalnum(ch) && ch != '_')
-        break;
+  }
+  return KWORDEXP_PARSE_SUCCESS;
+}
 
-      ret = kstr_put(&kstr_var, str, 1);
+static int kwei_var_atto(kwordexp_internal_t *pkwei) {
+  for (size_t i = 1; i < pkwei->kwei_pwe->kwe_argc; i++) {
+    // separate words
+    if (i > 1)
+      kwei_push_word(pkwei);
+    int ret = kout_printf(pkwei->kwei_pout, "%s", pkwei->kwei_pwe->kwe_argv[i]);
+    if (ret == -1)
+      return KWORDEXP_PARSE_ERROR;
+  }
+  return KWORDEXP_PARSE_SUCCESS;
+}
+
+static int kwei_var_num(kwordexp_internal_t *pkwei, int ch) {
+  int n = ch - '0';
+  if (n >= pkwei->kwei_pwe->kwe_argc) {
+    return KWORDEXP_PARSE_ERROR;
+  }
+  int ret = kout_printf(pkwei->kwei_pout, "%s", pkwei->kwei_pwe->kwe_argv[n]);
+  if (ret == -1)
+    return KWORDEXP_PARSE_ERROR;
+  return KWORDEXP_PARSE_SUCCESS;
+}
+
+static int kwei_parse_var(kwordexp_internal_t *pkwei) {
+  int ch = kin_getc(pkwei->kwei_pin);
+  int ret;
+  switch (ch) {
+
+  case EOF:
+    return KWORDEXP_PARSE_ERROR;
+
+  case '*':
+    return kwei_var_asterisk(pkwei);
+
+  case '@':
+    return kwei_var_atto(pkwei);
+
+  case '#':
+    ret = kout_printf(pkwei->kwei_pout, "%zu", pkwei->kwei_pwe->kwe_argc - 1);
+    if (ret == -1)
+      return KWORDEXP_PARSE_ERROR;
+    return KWORDEXP_PARSE_SUCCESS;
+
+  case '?':
+    ret = kout_printf(pkwei->kwei_pout, "%d", pkwei->kwei_pwe->kwe_last_status);
+    if (ret == -1)
+      return KWORDEXP_PARSE_ERROR;
+    return KWORDEXP_PARSE_SUCCESS;
+
+  case '-':
+    ret = kout_printf(pkwei->kwei_pout, "$-");
+    if (ret == -1)
+      return KWORDEXP_PARSE_ERROR;
+    return KWORDEXP_PARSE_SUCCESS;
+
+  case '$':
+    ret = kout_printf(pkwei->kwei_pout, "%d", getpid());
+    if (ret == -1)
+      return KWORDEXP_PARSE_ERROR;
+    return KWORDEXP_PARSE_SUCCESS;
+
+  case '!':
+    ret = kout_printf(pkwei->kwei_pout, "%d", pkwei->kwei_pwe->kwe_last_bgpid);
+    if (ret == -1)
+      return KWORDEXP_PARSE_ERROR;
+    return KWORDEXP_PARSE_SUCCESS;
+
+  case '0':
+    ret = kout_printf(pkwei->kwei_pout, "%s", pkwei->kwei_pwe->kwe_argv[0]);
+    if (ret == -1)
+      return KWORDEXP_PARSE_ERROR;
+    return KWORDEXP_PARSE_SUCCESS;
+
+  case '_':
+    ret = kout_printf(pkwei->kwei_pout, "%s", pkwei->kwei_pwe->kwe_last_arg);
+    if (ret == -1)
+      return KWORDEXP_PARSE_ERROR;
+    return KWORDEXP_PARSE_SUCCESS;
+
+  case '{':
+    return kwei_parse_var_brace(pkwei);
+
+  case '(':
+    return kwei_parse_var_paren(pkwei);
+
+  case '1' ... '9':
+    return kwei_var_num(pkwei, ch);
+
+  default:
+    if (!isalpha(ch)) {
+      return KWORDEXP_PARSE_ERROR;
+    }
+    kout_t kout = kout_init(NULL, NULL, 0);
+    do {
+      ret = kout_putc(&kout, ch);
       if (ret == -1)
         return KWORDEXP_PARSE_ERROR;
-      str++;
-    }
-    const char *value = we->kwe_getenv(we->kwe_data, kstr_var.buf);
-    kstr_destroy(kstr_var);
-    if (value == NULL) {
+      ch = kin_getc(pkwei->kwei_pin);
+    } while (isalnum(ch) || ch == '_');
+    if (ch != EOF)
+      kin_ungetc(pkwei->kwei_pin, ch);
+    kout_close(&kout);
+    const char *varname = kout.kout_obuf;
+    kout.kout_obuf = NULL;
+    kout_destroy(&kout);
+    kwordexp_getenv_t getenv = pkwei->kwei_pwe->kwe_getenv;
+    if (getenv == NULL)
+      getenv = kwordexp_getenv_default;
+    const char *value = getenv(pkwei->kwei_pwe->kwe_data, varname);
+    free((void *)varname);
+    if (value == NULL)
+      return KWORDEXP_PARSE_SUCCESS;
+    ret = kout_printf(pkwei->kwei_pout, "%s", value);
+    if (ret == -1)
       return KWORDEXP_PARSE_ERROR;
-    }
-    ret = kstr_put(kstr, value, strlen(value));
-    if (ret == -1) {
-      return KWORDEXP_PARSE_ERROR;
-    }
-    *pstr = str;
     return KWORDEXP_PARSE_SUCCESS;
   }
 }
 
-static int kwordexp_parse_dquote(const char **pstr, kstr_t *kstr) {
-  const char *str = *pstr;
+static int kwei_parse_dquote(kwordexp_internal_t *pkwei) {
   int ret;
   while (1) {
-    int ch = *str;
+    int ch = kin_getc(pkwei->kwei_pin);
     switch (ch) {
 
-    case '\0':
+    case EOF:
       return KWORDEXP_PARSE_ERROR;
 
     case '"':
-      str++;
-      break;
+      return KWORDEXP_PARSE_SUCCESS;
+
+    case '$':
+      ret = kwei_parse_var(pkwei);
+      if (ret == KWORDEXP_PARSE_ERROR)
+        return KWORDEXP_PARSE_ERROR;
+      continue;
 
     case '\\':
-      str++;
-      if (*str == '\0')
+      ch = kin_getc(pkwei->kwei_pin);
+      if (ch == EOF)
         return KWORDEXP_PARSE_ERROR;
-
-    case '$':
-      str++;
-      if (*str == '\0')
-        return KWORDEXP_PARSE_ERROR;
-      ret = kwordexp_parse_var(&str, kstr);
 
     default:
-      ret = kstr_put(kstr, str, 1);
+      ret = kout_putc(pkwei->kwei_pout, ch);
       if (ret == -1)
         return KWORDEXP_PARSE_ERROR;
-      str++;
+      continue;
     }
   }
-  *pstr = str;
-  return KWORDEXP_PARSE_SUCCESS;
 }
 
-static int kwordexp_parse_words(const char **pstr, kstrs_t *kstrs,
-                                kwordexp_t *we, int flags) {
-  const char *str = *pstr;
-  int ret = KWORDEXP_PARSE_ERROR;
-
+static int kwei_parse(kwordexp_internal_t *pkwei) {
   while (1) {
     // Skip leading spaces
-    while (isspace(*str))
-      str++;
-
-    int ch = *str;
-
+    int ch = kin_getc(pkwei->kwei_pin);
     switch (ch) {
-    case '\0':
-      ret = KWORDEXP_PARSE_SUCCESS;
-      break;
+    case EOF:
+      return KWORDEXP_PARSE_SUCCESS;
 
-    case '\'':
-      str++;
-
+    case '\'': {
       // parse single quoted string
-      ret = kwordexp_parse_squote(&str, &kstrs);
+      int ret = kwei_parse_squote(pkwei);
       if (ret == KWORDEXP_PARSE_ERROR) {
         return KWORDEXP_PARSE_ERROR;
       }
-
-      // commit the string
-      ret = kstrs_push(kstrs);
-      if (ret == -1) {
-        return KWORDEXP_PARSE_ERROR;
-      }
-
       break;
+    }
 
-    case '"':
-      str++;
-
+    case '"': {
       // parse double quoted string
-      ret = kwordexp_parse_dquote(&str, &kstrs);
+      int ret = kwei_parse_dquote(pkwei);
       if (ret == KWORDEXP_PARSE_ERROR) {
         return KWORDEXP_PARSE_ERROR;
       }
-
-      // commit the string
-      ret = kstrs_push(kstrs);
-      if (ret == -1) {
-        return KWORDEXP_PARSE_ERROR;
-      }
-
       break;
+    }
 
-    case '$':
-      str++;
-
+    case '$': {
       // parse variable
-      ret = kwordexp_parse_var(&str, &kstrs);
+      int ret = kwei_parse_var(pkwei);
       if (ret == KWORDEXP_PARSE_ERROR) {
         return KWORDEXP_PARSE_ERROR;
       }
-
-      // commit the string
-      ret = kstrs_push(kstrs);
-      if (ret == -1) {
-        return KWORDEXP_PARSE_ERROR;
-      }
-
       break;
+    }
 
     default:
       if (isspace(ch)) {
-        ret = kstrs_push(kstrs);
-        if (ret == -1) {
-          return KWORDEXP_PARSE_ERROR;
+        if (pkwei->kwei_inword) {
+          int ret = kwei_push_word(pkwei);
+          if (ret == -1)
+            return KWORDEXP_PARSE_ERROR;
+          pkwei->kwei_inword = 0;
         }
-        str++;
         continue;
       }
-      ret = kstr_put(&kstrs->kstr, str, 1);
-      if (ret == -1) {
-        return KWORDEXP_PARSE_ERROR;
+      if (ch == '\\') {
+        ch = kin_getc(pkwei->kwei_pin);
+        if (ch == EOF)
+          return KWORDEXP_PARSE_ERROR;
       }
-      str++;
-    }
-  }
-}
+      int ret = kout_putc(pkwei->kwei_pout, ch);
+      if (ret == -1)
+        return KWORDEXP_PARSE_ERROR;
 
-static int kwordexp_internal(const char *str, kwordexp_t *we, int flags) {
-  const char *str_save = str;
-  kstrs_t kstrs;
-  int ret = kstrs_init(&kstrs);
-  if (ret == -1) {
-    return -1;
-  }
-  ret = kwordexp_parse_words(&str, &kstrs, we, flags);
-  if (ret == KWORDEXP_PARSE_ERROR) {
-    kstrs_destroy(&kstrs);
-    return -1;
-  }
-  if (kstrs.kstr.len != 0) {
-    ret = kstrs_push(&kstrs);
-    if (ret == -1) {
-      kstrs_destroy(&kstrs);
-      return -1;
+      continue;
     }
   }
-  we->kwe_wordv = kstrs.strv;
-  we->kwe_wordc = kstrs.strc;
-  return 0;
 }
 
 // ----------------------------------------------------------------
 // kwordexp
 // ----------------------------------------------------------------
 
-int kwordexp(const char *str, kwordexp_t *we, int flags) {
-  return kwordexp_internal(str, we, flags);
+int kfwordexp(FILE *fp, kwordexp_t *pwe, int flags) {
+  kwordexp_internal_t kwei;
+  kin_t kin = kin_init(fp, NULL, 0);
+  kout_t kout = kout_init(NULL, NULL, 0);
+  kwei.kwei_pwe = pwe;
+  kwei.kwei_pin = &kin;
+  kwei.kwei_pout = &kout;
+  kwei.kwei_flags = flags;
+  kwei.kwei_inword = 0;
+  int ret = kwei_parse(&kwei);
+  int err = errno;
+  kwei_push_word(&kwei);
+  kin_destroy(&kin);
+  kout_destroy(&kout);
+  errno = err;
+  return ret;
+}
+
+int kwordexp(const char *ibuf, kwordexp_t *pwe, int flags) {
+  kwordexp_internal_t kwei;
+  kin_t kin = kin_init(NULL, ibuf, strlen(ibuf));
+  kout_t kout = kout_init(NULL, NULL, 0);
+  kwei.kwei_pwe = pwe;
+  kwei.kwei_pin = &kin;
+  kwei.kwei_pout = &kout;
+  kwei.kwei_flags = flags;
+  kwei.kwei_inword = 0;
+  int ret = kwei_parse(&kwei);
+  int err = errno;
+  kin_destroy(&kin);
+  kout_destroy(&kout);
+  errno = err;
+  return ret;
 }
 
 // ----------------------------------------------------------------
 // kwordfree
 // ----------------------------------------------------------------
-void kwordfree(kwordexp_t *we) { kwordfree_internal(we); }
+void kwordfree(kwordexp_t *pwe) { kwe_free(pwe); }
 
 // ----------------------------------------------------------------
 // Default functions
@@ -444,14 +465,39 @@ const char *kwordexp_getenv_default(void *data, const char *key) {
   return getenv(key);
 }
 
-int kwordexp_exec_default(void *data, const char **words, char **result) {
+int kwordexp_exec_default(void *data, const char **argv, FILE *ofp) {
+  int pipefd[2];
+  if (pipe(pipefd) == -1)
+    return -1;
   pid_t pid = fork();
   if (pid == -1)
     return -1;
   if (pid == 0) {
-    execvp(words[0], (char *const *)words);
+    close(pipefd[0]);
+    if (dup2(pipefd[1], STDOUT_FILENO) == -1)
+      exit(EXIT_FAILURE);
+    execvp(argv[0], (char *const *)argv);
     exit(EXIT_FAILURE);
   }
+  close(pipefd[1]);
+  char buf[sysconf(_SC_PAGESIZE)];
+  while (1) {
+    ssize_t n = read(pipefd[0], buf, sizeof(buf));
+    if (n == -1) {
+      int err = errno;
+      close(pipefd[0]);
+      errno = err;
+      return -1;
+    }
+    if (fwrite(buf, 1, n, ofp) != n) {
+      int err = errno;
+      close(pipefd[0]);
+      errno = err;
+      return -1;
+    }
+  }
+  close(pipefd[0]);
+
   int status;
   while (waitpid(pid, &status, 0) == -1) {
     if (errno != EINTR)
