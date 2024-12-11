@@ -5,9 +5,9 @@
 #include <sys/types.h>
 
 typedef struct kwordexp kwordexp_t;
-typedef const char *(*kwordexp_setenv_t)(void *data, const char *key,
-                                         const char *value, int overwrite);
-typedef const char *(*kwordexp_getenv_t)(void *data, const char *key);
+typedef int (*kwordexp_setenv_t)(void *data, const char *key, char *value,
+                                 int overwrite);
+typedef int (*kwordexp_getenv_t)(void *data, const char *key, char **pvalue);
 typedef int (*kwordexp_exec_t)(void *data, const char **word, FILE *ofp);
 
 struct kwordexp {
@@ -24,16 +24,20 @@ struct kwordexp {
   const char *kwe_last_arg;
 };
 
-int kwordexp(const char *ibuf, kwordexp_t *we, int flags) __attribute__((warn_unused_result, nonnull(1, 2)));
-int kfwordexp(FILE *ifp, kwordexp_t *we, int flags) __attribute__((warn_unused_result, nonnull(1, 2)));
+int kwordexp(const char *ibuf, kwordexp_t *we, int flags)
+    __attribute__((warn_unused_result, nonnull(1, 2)));
+int kfwordexp(FILE *ifp, kwordexp_t *we, int flags)
+    __attribute__((warn_unused_result, nonnull(1, 2)));
 void kwordfree(kwordexp_t *we) __attribute__((nonnull(1)));
 
-int kwordexp_setenv_default(void *data, const char *key, const char *value,
+int kwordexp_setenv_default(void *data, const char *key, char *value,
                             int overwrite)
     __attribute__((weak, warn_unused_result, nonnull(2, 3)));
 
-const char *kwordexp_getenv_default(void *data, const char *key) __attribute__((weak, warn_unused_result, nonnull(2)));
+int kwordexp_getenv_default(void *data, const char *key, char **pvalue)
+    __attribute__((weak, warn_unused_result, nonnull(2)));
 
-int kwordexp_exec_default(void *data, const char **argv, FILE *ofp) __attribute__((weak, warn_unused_result, nonnull(2, 3)));
+int kwordexp_exec_default(void *data, const char **argv, FILE *ofp)
+    __attribute__((weak, warn_unused_result, nonnull(2, 3)));
 
 #endif

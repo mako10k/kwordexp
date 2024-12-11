@@ -1,7 +1,7 @@
 lib_LTLIBRARIES = libkwordexp.la libkio.la
 
 libkwordexp_la_SOURCES = kwordexp.c
-libkwordexp_la_LDADD = libkio.la
+libkwordexp_la_LIBADD = libkio.la
 
 libkio_la_SOURCES = kio.c
 
