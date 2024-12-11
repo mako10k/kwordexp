@@ -1,4 +1,5 @@
 #include "kio.h"
+#include <stdarg.h>
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -8,38 +9,40 @@ kin_t kin_init(FILE *fp, const char *ibuf, size_t ibufsize) {
   kin.kin_ibuf = ibuf;
   kin.kin_ibufsize = ibufsize;
   kin.kin_ibufpos = 0;
+  kin.kin_ch = EOF;
   return kin;
 }
 
 int kin_getc(kin_t *pkin) {
-  if (pkin->kin_ifp != NULL) {
+  if (pkin->kin_ifp != NULL)
     return fgetc(pkin->kin_ifp);
-  }
+
   if (pkin->kin_ch != EOF) {
     int ch = pkin->kin_ch;
     pkin->kin_ch = EOF;
     return ch;
   }
-  if (pkin->kin_ibufpos >= pkin->kin_ibufsize) {
+  if (pkin->kin_ibufpos >= pkin->kin_ibufsize)
     return EOF;
-  }
+
   return pkin->kin_ibuf[pkin->kin_ibufpos++] & 0xff;
 }
 
 int kin_ungetc(kin_t *pkin, int ch) {
-  if (pkin->kin_ifp != NULL) {
+  if (pkin->kin_ifp != NULL)
     return ungetc(ch, pkin->kin_ifp);
-  }
-  if (pkin->kin_ch != EOF) {
+
+  if (pkin->kin_ch != EOF)
     return EOF;
-  }
-  if (pkin->kin_ibufpos == 0) {
+
+  if (pkin->kin_ibufpos == 0)
     return EOF;
-  }
+
   if (pkin->kin_ibuf[pkin->kin_ibufpos - 1] == ch)
     pkin->kin_ibufpos--;
   else
     pkin->kin_ch = ch;
+
   return ch;
 }
 
@@ -47,11 +50,25 @@ int kin_close(kin_t *pkin) {
   if (pkin->kin_ifp != NULL) {
     int ret = fclose(pkin->kin_ifp);
     if (ret == EOF) {
-      return -1;
+      return EOF;
     }
     pkin->kin_ifp = NULL;
   }
   return 0;
+}
+
+int kin_error(kin_t *pkin) {
+  if (pkin->kin_ifp != NULL) {
+    return ferror(pkin->kin_ifp);
+  }
+  return 0;
+}
+
+int kin_eof(kin_t *pkin) {
+  if (pkin->kin_ifp != NULL) {
+    return feof(pkin->kin_ifp);
+  }
+  return pkin->kin_ibufpos >= pkin->kin_ibufsize;
 }
 
 int kin_destroy(kin_t *pkin) { return kin_close(pkin); }
@@ -66,8 +83,7 @@ kout_t kout_init(FILE *fp, char *obuf, size_t obufsize) {
 
 FILE *kout_getfp(kout_t *pkout) {
   if (pkout->kout_ofp == NULL) {
-    FILE *ofp =
-        open_memstream(&pkout->kout_obuf, &pkout->kout_obufsize);
+    FILE *ofp = open_memstream(&pkout->kout_obuf, &pkout->kout_obufsize);
     if (ofp == NULL) {
       return NULL;
     }
@@ -106,7 +122,7 @@ int kout_close(kout_t *pkout) {
   if (pkout->kout_ofp != NULL) {
     int ret = fclose(pkout->kout_ofp);
     if (ret == EOF) {
-      return -1;
+      return EOF;
     }
     pkout->kout_ofp = NULL;
   }
@@ -115,8 +131,8 @@ int kout_close(kout_t *pkout) {
 
 int kout_destroy(kout_t *pkout) {
   int ret = kout_close(pkout);
-  if (ret == -1) {
-    return -1;
+  if (ret == EOF) {
+    return EOF;
   }
   if (pkout->kout_obuf != NULL) {
     free(pkout->kout_obuf);

@@ -1,7 +1,8 @@
 If:
     PathMatch: .*\.[ch]
 
-CompilerFlags:
-    - -Wall
-    - -Wextra
-    - -Werror
+CompileFlags:
+    Add:
+        - "-Wall"
+        - "-Wextra"
+        - "-Werror"

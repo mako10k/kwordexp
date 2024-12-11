@@ -28,6 +28,8 @@ int kin_getc(kin_t *pkin) __attribute__((warn_unused_result, nonnull(1)));
 int kin_ungetc(kin_t *pkin, int ch)
     __attribute__((warn_unused_result, nonnull(1)));
 int kin_close(kin_t *pkin) __attribute__((warn_unused_result, nonnull(1)));
+int kin_error(kin_t *pkin) __attribute__((warn_unused_result, nonnull(1)));
+int kin_eof(kin_t *pkin) __attribute__((warn_unused_result, nonnull(1)));
 int kin_destroy(kin_t *pkin) __attribute__((warn_unused_result, nonnull(1)));
 kout_t kout_init(FILE *fp, char *obuf, size_t obufsize)
     __attribute__((warn_unused_result));
