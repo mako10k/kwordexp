@@ -6,3 +6,5 @@ CompileFlags:
         - "-Wall"
         - "-Wextra"
         - "-Werror"
+        - "-I./include"
+        - "-I../include"
