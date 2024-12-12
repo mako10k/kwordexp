@@ -8,12 +8,12 @@ typedef struct kwordexp kwordexp_t;
 typedef int (*kwordexp_setenv_t)(void *data, const char *key, char *value,
                                  int overwrite);
 typedef int (*kwordexp_getenv_t)(void *data, const char *key, char **pvalue);
-typedef int (*kwordexp_exec_t)(void *data, const char **word, FILE *ofp);
+typedef int (*kwordexp_exec_t)(void *data, char **argv, FILE *ofp);
 
 struct kwordexp {
-  const char **kwe_wordv;
+  char **kwe_wordv;
   size_t kwe_wordc;
-  const char **kwe_argv;
+  char **kwe_argv;
   size_t kwe_argc;
   kwordexp_setenv_t kwe_setenv;
   kwordexp_getenv_t kwe_getenv;
@@ -37,7 +37,7 @@ int kwordexp_setenv_default(void *data, const char *key, char *value,
 int kwordexp_getenv_default(void *data, const char *key, char **pvalue)
     __attribute__((weak, warn_unused_result, nonnull(2)));
 
-int kwordexp_exec_default(void *data, const char **argv, FILE *ofp)
+int kwordexp_exec_default(void *data, char **argv, FILE *ofp)
     __attribute__((weak, warn_unused_result, nonnull(2, 3)));
 
 #endif

@@ -76,3 +76,4 @@ Makefile.in
 *.lo
 *.la
 *.pc
+*.orig

@@ -46,7 +46,7 @@ static kwei_status_t kwei_parse_squote(kwordexp_internal_t *pkwei)
 static kwei_status_t kwei_getenv(kwordexp_internal_t *pkwei, const char *key,
                                  char **pvalue)
     __attribute__((warn_unused_result, nonnull(1, 2, 3)));
-static kwei_status_t kwei_exec(kwordexp_internal_t *pkwei, const char **argv,
+static kwei_status_t kwei_exec(kwordexp_internal_t *pkwei, char **argv,
                                FILE *ofp)
     __attribute__((warn_unused_result, nonnull(1, 2, 3)));
 static kwei_status_t kwei_parse_var_paren(kwordexp_internal_t *pkwei)
@@ -135,7 +135,7 @@ static kwei_status_t kwei_getenv(kwordexp_internal_t *pkwei, const char *key,
   return KSSUCCESS;
 }
 
-static kwei_status_t kwei_exec(kwordexp_internal_t *pkwei, const char **argv,
+static kwei_status_t kwei_exec(kwordexp_internal_t *pkwei, char **argv,
                                FILE *ofp) {
   kwordexp_exec_t exec = pkwei->kwei_pwe->kwe_exec;
   if (exec == NULL)
@@ -294,7 +294,7 @@ static const char *kwei_get_ifs(kwordexp_t *pkwe) {
 static kwei_status_t kwei_push_word(kwordexp_internal_t *pkwei) {
   kwordexp_t *pkwe = pkwei->kwei_pwe;
   size_t wordc = pkwe->kwe_wordc + 1;
-  const char **wordv = realloc(pkwe->kwe_wordv, (wordc + 2) * sizeof(char *));
+  char **wordv = realloc(pkwe->kwe_wordv, (wordc + 2) * sizeof(char *));
   if (wordv == NULL) {
     pkwei->kwei_errno = errno;
     pkwei->kwei_errex = KESYSTEM;
@@ -754,7 +754,7 @@ int kwordexp_getenv_default(void *data, const char *key, char **pvalue) {
   return 0;
 }
 
-int kwordexp_exec_default(void *data, const char **argv, FILE *ofp) {
+int kwordexp_exec_default(void *data, char **argv, FILE *ofp) {
   (void)data;
   int pipefd[2];
   if (pipe(pipefd) == -1)
