@@ -2,6 +2,7 @@
 #include "../include/kio.h"
 #include <ctype.h>
 #include <errno.h>
+#include <glob.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -31,6 +32,7 @@ struct kwordexp_internal {
   kout_t *kwei_pout;
   int kwei_flags;
   int kwei_has_arg;
+  int kwei_has_pattern;
   int kwei_errno;
   kwei_err_t kwei_errex;
   kwei_status_t kwei_status;
@@ -86,6 +88,7 @@ static kwordexp_internal_t kwei_init(kwordexp_t *pkwe, kin_t *pkin,
   kwei.kwei_pout = pkout;
   kwei.kwei_flags = flags;
   kwei.kwei_has_arg = 0;
+  kwei.kwei_has_pattern = 0;
   kwei.kwei_errno = 0;
   kwei.kwei_errex = KENONE;
   kwei.kwei_status = KSSUCCESS;
@@ -353,13 +356,6 @@ static kwei_status_t kwei_push_word(kwordexp_internal_t *pkwei) {
 
   kwordexp_t *pkwe = pkwei->kwei_pwe;
   size_t wordc = pkwe->kwe_wordc;
-  char **wordv = realloc(pkwe->kwe_wordv, (wordc + 2) * sizeof(char *));
-  if (wordv == NULL) {
-    pkwei->kwei_errno = errno;
-    pkwei->kwei_errex = KESYSTEM;
-    pkwei->kwei_status = KSERROR;
-    return KSERROR;
-  }
 
   char *word = NULL;
   int ret = kout_close(pkwei->kwei_pout, &word, NULL);
@@ -378,11 +374,54 @@ static kwei_status_t kwei_push_word(kwordexp_internal_t *pkwei) {
       return KSERROR;
     }
   }
+
+  glob_t gl;
+  int has_pattern = pkwei->kwei_has_pattern;
+  if (has_pattern) {
+    int ret = glob(word, GLOB_NOCHECK | GLOB_BRACE | GLOB_TILDE, NULL, &gl);
+    if (ret != 0)
+      has_pattern = 0;
+  }
+
+  size_t wordc_add = has_pattern ? gl.gl_pathc : 1;
+  char **wordv =
+      realloc(pkwe->kwe_wordv, (wordc + wordc_add + 1) * sizeof(char *));
+  if (wordv == NULL) {
+    pkwei->kwei_errno = errno;
+    pkwei->kwei_errex = KESYSTEM;
+    pkwei->kwei_status = KSERROR;
+    free(word);
+    if (has_pattern)
+      globfree(&gl);
+    return KSERROR;
+  }
+
+  if (has_pattern) {
+    for (size_t i = 0; i < gl.gl_pathc; i++) {
+      wordv[wordc + i] = strdup(gl.gl_pathv[i]);
+      if (wordv[wordc + i] == NULL) {
+        pkwei->kwei_errno = errno;
+        pkwei->kwei_errex = KESYSTEM;
+        pkwei->kwei_status = KSERROR;
+        for (size_t j = 0; j < i; j++)
+          free(wordv[wordc + j]);
+        free(word);
+        if (has_pattern)
+          globfree(&gl);
+        return KSERROR;
+      }
+    }
+  } else {
+    wordv[wordc] = word;
+  }
+
   pkwe->kwe_wordv = wordv;
-  pkwe->kwe_wordv[wordc] = word;
-  pkwe->kwe_wordv[wordc + 1] = NULL;
-  pkwe->kwe_wordc = wordc + 1;
+  pkwe->kwe_wordv[wordc + wordc_add] = NULL;
+  pkwe->kwe_wordc = wordc + wordc_add;
   pkwei->kwei_has_arg = 0;
+  pkwei->kwei_has_pattern = 0;
+  if (has_pattern)
+    globfree(&gl);
   return KSSUCCESS;
 }
 
@@ -729,7 +768,9 @@ static kwei_status_t kwei_parse_internal(kwordexp_internal_t *pkwei) {
           return kstat;
         continue;
       }
+      int esc = 0;
       if (ch == '\\') {
+        esc = 1;
         ch = kin_getc(pkwei->kwei_pin);
         if (ch == EOF) {
           if (kin_error(pkwei->kwei_pin)) {
@@ -742,7 +783,21 @@ static kwei_status_t kwei_parse_internal(kwordexp_internal_t *pkwei) {
           return KSERROR;
         }
       }
-      if (isalnum(ch) || ch == '_') {
+      if (ch == '[' || ch == ']' || ch == '{' || ch == ']' || ch == '~' ||
+          ch == '*' || ch == '?') {
+        if (!esc)
+          pkwei->kwei_has_pattern = 1;
+        pkwei->kwei_has_arg = 1;
+        int ret = kout_putc(pkwei->kwei_pout, ch);
+        if (ret == -1) {
+          pkwei->kwei_errno = errno;
+          pkwei->kwei_errex = KESYSTEM;
+          pkwei->kwei_status = KSERROR;
+          return KSERROR;
+        }
+        continue;
+      }
+      if (isprint(ch)) {
         pkwei->kwei_has_arg = 1;
         int ret = kout_putc(pkwei->kwei_pout, ch);
         if (ret == -1) {
@@ -796,6 +851,7 @@ int kfwordexp(FILE *fp, kwordexp_t *pwe, int flags) {
   kwei.kwei_pout = pkout;
   kwei.kwei_flags = flags;
   kwei.kwei_has_arg = 0;
+  kwei.kwei_has_pattern = 0;
   kwei_status_t kstat = kwei_parse(&kwei);
   if (kstat != KSSUCCESS) {
     kin_destroy(pkin);
@@ -825,6 +881,7 @@ int kwordexp(const char *ibuf, kwordexp_t *pwe, int flags) {
   kwei.kwei_pout = pkout;
   kwei.kwei_flags = flags;
   kwei.kwei_has_arg = 0;
+  kwei.kwei_has_pattern = 0;
   kwei_status_t kstat = kwei_parse(&kwei);
   if (kstat != KSSUCCESS) {
     kin_destroy(pkin);
