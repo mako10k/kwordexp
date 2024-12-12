@@ -75,3 +75,4 @@ Makefile.in
 *.a
 *.lo
 *.la
+*.pc

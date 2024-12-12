@@ -1,1 +1,1 @@
-include_HEADERS = kwordexp.h
+include_HEADERS = kwordexp.h kio.h
