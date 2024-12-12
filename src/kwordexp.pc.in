@@ -7,5 +7,5 @@ Name: kwordexp
 Description: Alternative wordexp
 Version: @PACKAGE_VERSION@
 Requires: kio
-Libs: -L${libdir} -lkwordexp -lkio
+Libs: -L${libdir} -lkwordexp -lkio -Wl,-rpath -Wl,${libdir}
 Cflags: -I${includedir}
