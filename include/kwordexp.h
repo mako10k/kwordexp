@@ -43,4 +43,8 @@ int kwordexp_getenv_default(void *data, const char *key, char **pvalue)
 int kwordexp_exec_default(void *data, char **argv, FILE *ofp)
     __attribute__((weak, warn_unused_result, nonnull(2, 3)));
 
+
+#define KWRDE_SHOWERR 0x01
+#define KWRDE_UNDEF 0x02
+
 #endif

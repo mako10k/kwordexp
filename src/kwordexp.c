@@ -2,10 +2,12 @@
 #include "../include/kio.h"
 #include <ctype.h>
 #include <errno.h>
+#include <fcntl.h>
 #include <glob.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/types.h>
 #include <sys/wait.h>
 #include <unistd.h>
 
@@ -19,6 +21,7 @@ typedef enum kwei_err {
   KESYSTEM = 1,
   KESYNTAX = 2,
   KENARG = 3,
+  KEUNDEF = 4,
 } kwei_err_t;
 
 typedef enum kwei_status {
@@ -200,9 +203,12 @@ static kwei_status_t kwei_getenv(kwordexp_internal_t *pkwei, const char *key,
 static kwei_status_t kwei_exec(kwordexp_internal_t *pkwei, char **argv,
                                FILE *ofp) {
   kwordexp_exec_t exec = pkwei->kwei_pwe->kwe_exec;
-  if (exec == NULL)
+  void *data = pkwei->kwei_pwe->kwe_data;
+  if (exec == NULL) {
     exec = kwordexp_exec_default;
-  int ret = exec(pkwei->kwei_pwe->kwe_data, argv, ofp);
+    data = pkwei;
+  }
+  int ret = exec(data, argv, ofp);
   if (ret < 0) {
     pkwei->kwei_errno = errno;
     pkwei->kwei_errex = KESYSTEM;
@@ -282,7 +288,7 @@ static kwei_status_t kwei_parse_var_brace(kwordexp_internal_t *pkwei) {
     pkwei->kwei_status = KSERROR;
     return KSERROR;
   }
-  kwordexp_t kwe_varname = *pkwei->kwei_pwe;
+  kwordexp_t kwe_varname = *pkwei->kwei_pwe; // TODO: change
   kwe_varname.kwe_wordv = NULL;
   kwe_varname.kwe_wordc = 0;
   kwordexp_internal_t kwei_varname = kwei_init(
@@ -330,6 +336,14 @@ static kwei_status_t kwei_parse_var_brace(kwordexp_internal_t *pkwei) {
   kwe_free(&kwe_varname);
   if (kstat != KSSUCCESS)
     return kstat;
+  if (varvalue == NULL) {
+    if (pkwei->kwei_flags & KWRDE_UNDEF) {
+      pkwei->kwei_errex = KEUNDEF;
+      pkwei->kwei_status = KSERROR;
+      return KSERROR;
+    }
+    return KSSUCCESS;
+  }
   ret = kout_printf(pkwei->kwei_pout, "%s", varvalue);
   if (ret == -1) {
     pkwei->kwei_errno = errno;
@@ -656,6 +670,11 @@ static kwei_status_t kwei_parse_var(kwordexp_internal_t *pkwei) {
       return KSERROR;
     }
     if (varvalue == NULL) {
+      if (pkwei->kwei_flags & KWRDE_UNDEF) {
+        pkwei->kwei_errex = KEUNDEF;
+        pkwei->kwei_status = KSERROR;
+        return KSERROR;
+      }
       return KSSUCCESS;
     }
     ret = kout_printf(pkwei->kwei_pout, "%s", varvalue);
@@ -724,6 +743,8 @@ static kwei_status_t kwei_parse_dquote(kwordexp_internal_t *pkwei) {
 }
 
 static kwei_status_t kwei_parse_internal(kwordexp_internal_t *pkwei) {
+  int brace_level = 0;
+  int bracket_level = 0;
   while (1) {
     // Skip leading spaces
     int ch = kin_getc(pkwei->kwei_pin);
@@ -783,8 +804,17 @@ static kwei_status_t kwei_parse_internal(kwordexp_internal_t *pkwei) {
           return KSERROR;
         }
       }
-      if (ch == '[' || ch == ']' || ch == '{' || ch == ']' || ch == '~' ||
-          ch == '*' || ch == '?') {
+      if (ch == '[' || (bracket_level > 0 && ch == ']') || ch == '{' ||
+          (brace_level > 0 && ch == '}') || ch == '~' || ch == '*' ||
+          ch == '?') {
+        if (ch == '[')
+          bracket_level++;
+        if (ch == ']')
+          bracket_level--;
+        if (ch == '{')
+          brace_level++;
+        if (ch == '}')
+          brace_level--;
         if (!esc)
           pkwei->kwei_has_pattern = 1;
         pkwei->kwei_has_arg = 1;
@@ -797,7 +827,7 @@ static kwei_status_t kwei_parse_internal(kwordexp_internal_t *pkwei) {
         }
         continue;
       }
-      if (isprint(ch)) {
+      if (isprint(ch) && ch != '}' && ch != ']') {
         pkwei->kwei_has_arg = 1;
         int ret = kout_putc(pkwei->kwei_pout, ch);
         if (ret == -1) {
@@ -919,7 +949,7 @@ int kwordexp_getenv_default(void *data, const char *key, char **pvalue) {
 }
 
 int kwordexp_exec_default(void *data, char **argv, FILE *ofp) {
-  (void)data;
+  kwordexp_internal_t *pkwei = data;
   int pipefd[2];
   if (pipe(pipefd) == -1)
     return -1;
@@ -930,6 +960,10 @@ int kwordexp_exec_default(void *data, char **argv, FILE *ofp) {
     close(pipefd[0]);
     if (dup2(pipefd[1], STDOUT_FILENO) == -1)
       exit(EXIT_FAILURE);
+    if (!(pkwei->kwei_flags & KWRDE_SHOWERR)) {
+      close(STDERR_FILENO);
+      open("/dev/null", O_WRONLY);
+    }
     execvp(argv[0], (char *const *)argv);
     exit(EXIT_FAILURE);
   }
