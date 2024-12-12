@@ -1,4 +1,4 @@
-#include "kwordexp.h"
+#include "kwordexp_internal.h"
 #include "kio.h"
 #include <ctype.h>
 #include <errno.h>
@@ -261,11 +261,11 @@ static kwei_status_t kwei_parse_var_brace(kwordexp_internal_t *pkwei) {
 static const char *kwei_get_ifs(kwordexp_t *pkwe) {
   void *data = pkwe->kwe_data;
   char *ifs;
-  kwei_status_t kstat = kwei_getenv(data, "IFS", &ifs);
+  kwei_status_t kstat = kwei_getenv(data, KWEI_IFS_VARNAME, &ifs);
   if (kstat != KSSUCCESS)
     return NULL;
   if (ifs == NULL)
-    return " \t\n";
+    return KWEI_IFS_DEFVALUE;
   return ifs;
 }
 

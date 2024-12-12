@@ -5,4 +5,4 @@
 #include "config.h"
 #endif
 
-#include "../include/kio.h"
+#include "kio.h"
