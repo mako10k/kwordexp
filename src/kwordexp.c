@@ -41,7 +41,10 @@ static void kwe_init(kwordexp_t *pkwe, char **argv, size_t argc)
 static void kwe_copy(kwordexp_t *pkwe, const kwordexp_t *pother)
     __attribute__((nonnull(1, 2)));
 static void kwe_free(kwordexp_t *pkwe) __attribute__((nonnull(1)));
-
+#if 0
+static const char *kwei_concat(const char **argv, size_t argc, int ifs)
+    __attribute__((warn_unused_result, nonnull(1)));
+#endif
 static kwordexp_internal_t kwei_init(kwordexp_t *pkwe, kin_t *pkin,
                                      kout_t *pkout, int flags)
     __attribute__((warn_unused_result, nonnull(1)));
@@ -121,6 +124,28 @@ static void kwe_free(kwordexp_t *pkwe) {
     pkwe->kwe_wordv = NULL;
   }
 }
+
+#if 0
+static const char *kwei_concat(const char **argv, size_t argc, int ifs) {
+  size_t len = 0;
+  for (size_t i = 0; i < argc; i++) {
+    len += strlen(argv[i]) + 1;
+  }
+  char *buf = malloc(len + 1);
+  if (buf == NULL)
+    return NULL;
+  size_t idx = 0;
+  for (size_t i = 0; i < argc; i++) {
+    size_t l = strlen(argv[i]);
+    if (i > 0)
+      buf[idx++] = ifs;
+    memcpy(buf + idx, argv[i], l);
+    idx += l;
+  }
+  buf[idx] = '\0';
+  return buf;
+}
+#endif
 
 static kwei_status_t kwei_parse_squote(kwordexp_internal_t *pkwei) {
   pkwei->kwei_has_arg = 1;
@@ -289,18 +314,15 @@ static kwei_status_t kwei_parse_var_brace(kwordexp_internal_t *pkwei) {
     return KSERROR;
   }
 
-  char *varname;
-  ret = kout_close(pkout_varname, &varname, NULL);
-  if (ret == -1) {
-    pkwei->kwei_errno = errno;
-    pkwei->kwei_errex = KESYSTEM;
+  if (kwe_varname.kwe_wordc != 1) {
+    pkwei->kwei_errex = KESYNTAX;
     pkwei->kwei_status = KSERROR;
     kout_destroy(pkout_varname);
     kwe_free(&kwe_varname);
     return KSERROR;
   }
   char *varvalue;
-  kstat = kwei_getenv(pkwei, varname, &varvalue);
+  kstat = kwei_getenv(pkwei, kwe_varname.kwe_wordv[0], &varvalue);
   kout_destroy(pkout_varname);
   kwe_free(&kwe_varname);
   if (kstat != KSSUCCESS)
