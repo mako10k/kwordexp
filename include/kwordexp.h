@@ -30,6 +30,9 @@ int kfwordexp(FILE *ifp, kwordexp_t *we, int flags)
     __attribute__((warn_unused_result, nonnull(1, 2)));
 void kwordfree(kwordexp_t *we) __attribute__((nonnull(1)));
 
+void kwordexp_init(kwordexp_t *we, char **argv, size_t argc)
+    __attribute__((nonnull(1, 2)));
+
 int kwordexp_setenv_default(void *data, const char *key, char *value,
                             int overwrite)
     __attribute__((weak, warn_unused_result, nonnull(2, 3)));

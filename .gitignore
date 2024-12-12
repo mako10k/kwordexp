@@ -77,3 +77,6 @@ Makefile.in
 *.la
 *.pc
 *.orig
+
+# TEST TOOL
+test/runTest

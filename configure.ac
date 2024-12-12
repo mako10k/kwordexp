@@ -32,7 +32,7 @@ AC_FUNC_REALLOC
 
 AC_SUBST([LIB_VERSION], [1:1:1])
 
-AC_CONFIG_FILES([Makefile src/Makefile include/Makefile])
+AC_CONFIG_FILES([Makefile src/Makefile include/Makefile test/Makefile])
 AC_CONFIG_FILES([src/kio.pc src/kwordexp.pc])
 
 AC_CONFIG_MACRO_DIRS([m4])

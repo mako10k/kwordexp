@@ -123,7 +123,6 @@ int kout_putc(kout_t *pkout, int ch) {
     if (ofp == NULL) {
       return EOF;
     }
-    pkout->kout_ofp = ofp;
   }
   return fputc(ch, pkout->kout_ofp);
 }
@@ -152,7 +151,7 @@ int kout_close(kout_t *pkout, char **pbuf, size_t *psize) {
     if (psize != NULL) {
       *psize = pkout->kout_obufsize;
     }
-    if (*pbuf != NULL) {
+    if (pbuf != NULL) {
       *pbuf = pkout->kout_obuf;
       pkout->kout_obuf = NULL;
       pkout->kout_obufsize = 0;
