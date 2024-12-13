@@ -1,34 +1,18 @@
-#include "../include/kio.h"
+#include "kio_internal.h"
+#include "kmalloc_internal.h"
 #include <stdarg.h>
 #include <stdio.h>
-#include <stdlib.h>
 
-struct kin {
-  FILE *kin_ifp;
-  const char *kin_ibuf;
-  size_t kin_ibufsize;
-  size_t kin_ibufpos;
-  int kin_ch;
-};
-
-struct kout {
-  FILE *kout_ofp;
-  char *kout_obuf;
-  size_t kout_obufsize;
-};
-
-int kin_init(kin_t **ppkin, FILE *fp, const char *ibuf, size_t ibufsize) {
-  kin_t *pkin = (kin_t *)malloc(sizeof(kin_t));
-  if (pkin == NULL) {
-    return -1;
-  }
+kin_t *kin_open(FILE *fp, const char *ibuf, size_t ibufsize) {
+  kin_t *pkin = (kin_t *)kmalloc(sizeof(kin_t));
+  if (pkin == NULL)
+    return NULL;
   pkin->kin_ifp = fp;
   pkin->kin_ibuf = ibuf;
   pkin->kin_ibufsize = ibufsize;
   pkin->kin_ibufpos = 0;
   pkin->kin_ch = EOF;
-  *ppkin = pkin;
-  return 0;
+  return pkin;
 }
 
 int kin_getc(kin_t *pkin) {
@@ -67,11 +51,10 @@ int kin_ungetc(kin_t *pkin, int ch) {
 int kin_close(kin_t *pkin) {
   if (pkin->kin_ifp != NULL) {
     int ret = fclose(pkin->kin_ifp);
-    if (ret == EOF) {
+    if (ret == EOF)
       return EOF;
-    }
-    pkin->kin_ifp = NULL;
   }
+  kfree(pkin);
   return 0;
 }
 
@@ -83,27 +66,25 @@ int kin_error(kin_t *pkin) {
 }
 
 int kin_eof(kin_t *pkin) {
-  if (pkin->kin_ifp != NULL) {
+  if (pkin->kin_ifp != NULL)
     return feof(pkin->kin_ifp);
-  }
   return pkin->kin_ibufpos >= pkin->kin_ibufsize;
 }
 
 void kin_destroy(kin_t *pkin) {
   kin_close(pkin);
-  free(pkin);
+  kfree(pkin);
 }
 
-int kout_init(kout_t **ppkout, FILE *fp, char *obuf, size_t obufsize) {
-  kout_t *pkout = (kout_t *)malloc(sizeof(kout_t));
-  if (pkout == NULL) {
-    return -1;
-  }
+kout_t *kout_open(FILE *fp, char *obuf, size_t obufsize) {
+  kout_t *pkout = (kout_t *)kmalloc(sizeof(kout_t));
+  if (pkout == NULL)
+    return NULL;
+
   pkout->kout_ofp = fp;
   pkout->kout_obuf = obuf;
   pkout->kout_obufsize = obufsize;
-  *ppkout = pkout;
-  return 0;
+  return pkout;
 }
 
 FILE *kout_getfp(kout_t *pkout) {
@@ -145,27 +126,18 @@ int kout_printf(kout_t *pkout, const char *format, ...) {
 int kout_close(kout_t *pkout, char **pbuf, size_t *psize) {
   if (pkout->kout_ofp != NULL) {
     int ret = fclose(pkout->kout_ofp);
-    if (ret == EOF) {
+    if (ret == EOF)
       return EOF;
-    }
-    if (psize != NULL) {
-      *psize = pkout->kout_obufsize;
-    }
-    if (pbuf != NULL) {
-      *pbuf = pkout->kout_obuf;
-      pkout->kout_obuf = NULL;
-      pkout->kout_obufsize = 0;
-    }
     pkout->kout_ofp = NULL;
-  }
-  return 0;
-}
+    if (psize != NULL)
+      *psize = pkout->kout_obufsize;
 
-void kout_destroy(kout_t *pkout) {
-  char *buf = NULL;
-  int ret = kout_close(pkout, &buf, NULL);
-  (void)ret;
-  if (buf != NULL)
-    free(buf);
-  free(pkout);
+    if (pbuf != NULL)
+      *pbuf = pkout->kout_obuf;
+    else
+      ksfree(pkout->kout_obuf);
+  }
+  pkout->kout_obuf = NULL;
+  pkout->kout_obufsize = 0;
+  return 0;
 }

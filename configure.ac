@@ -13,6 +13,7 @@ LT_INIT()
 AC_PROG_CC
 
 # Checks for libraries.
+PKG_CHECK_MODULES([GC], [bdw-gc])
 
 # Checks for header files.
 AC_CHECK_HEADERS([stddef.h]) 
@@ -33,7 +34,7 @@ AC_FUNC_REALLOC
 AC_SUBST([LIB_VERSION], [1:1:1])
 
 AC_CONFIG_FILES([Makefile src/Makefile include/Makefile test/Makefile])
-AC_CONFIG_FILES([src/kio.pc src/kwordexp.pc])
+AC_CONFIG_FILES([src/kio.pc src/kwordexp.pc src/kmalloc.pc])
 
 AC_CONFIG_MACRO_DIRS([m4])
 

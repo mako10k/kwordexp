@@ -1,11 +1,16 @@
-#include "../include/kwordexp.h"
-#include "wordexp.h"
+#include "../src/kwordexp_internal.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <wordexp.h>
+#ifdef REPLACE_SYSTEM_ALLOC
+#include <gc.h>
+#endif
 
 int main(int argc, char **argv) {
-
+#ifdef REPLACE_SYSTEM_ALLOC
+  GC_INIT();
+#endif
   int mode_we = 0;
   while (1) {
     int opt = getopt(argc, argv, "whv");

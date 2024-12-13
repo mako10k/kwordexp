@@ -3,9 +3,9 @@ exec_prefix=@exec_prefix@
 libdir=@libdir@
 includedir=@includedir@
 
-Name: kio
-Description: memory IO manipulation
+Name: kmalloc
+Description: Alternative malloc
 Version: @PACKAGE_VERSION@
-Requires: kmalloc
-Libs: -L${libdir} -lkio -lkmalloc -Wl,-rpath -Wl,${libdir}
+Requires: bdw-gc
+Libs: -L${libdir} -lkmalloc -lgc -Wl,-rpath -Wl,${libdir}
 Cflags: -I${includedir}

@@ -80,3 +80,4 @@ Makefile.in
 
 # TEST TOOL
 test/runTest
+core

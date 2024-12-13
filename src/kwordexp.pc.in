@@ -6,6 +6,6 @@ includedir=@includedir@
 Name: kwordexp
 Description: Alternative wordexp
 Version: @PACKAGE_VERSION@
-Requires: kio
-Libs: -L${libdir} -lkwordexp -lkio -Wl,-rpath -Wl,${libdir}
+Requires: kio kmalloc
+Libs: -L${libdir} -lkwordexp -lkio -lkmalloc -Wl,-rpath -Wl,${libdir}
 Cflags: -I${includedir}
