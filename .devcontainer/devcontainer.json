@@ -19,7 +19,9 @@
 				"clang",
 				"automake",
 				"clangd",
-				"libtool"
+				"libtool",
+				"pkg-config",
+				"libgc-dev"
 			]
 		}
 	}
