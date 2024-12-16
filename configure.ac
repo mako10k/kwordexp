@@ -9,6 +9,16 @@ AC_CONFIG_HEADERS([config.h])
 AM_INIT_AUTOMAKE([foreign])
 LT_INIT()
 
+AC_ARG_ENABLE([debug], [AS_HELP_STRING([--enable-debug], [Enable debugging])], [debug=$enableval], [debug=no])
+AM_CONDITIONAL([DEBUG], [test "x$debug" = "xyes"])
+if test "x$debug" = "xyes"; then
+    AC_DEFINE([DEBUG], [1], [Define to 1 if debugging is enabled])
+    CFLAGS="${CFLAGS/-O?/}"
+    CFLAGS="${CFLAGS/-g?/}"
+    CFLAGS="${CFLAGS} -O0 -g3"
+fi
+
+
 # Checks for programs.
 AC_PROG_CC
 
