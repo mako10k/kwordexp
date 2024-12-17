@@ -51,17 +51,7 @@ int main(int argc, char **argv) {
     for (int i = optind; i < argc; i++) {
       printf("argv[%d]=%s\n", i, argv[i]);
       kwordexp_t kwe;
-      kwe.kwe_argc = argc;
-      kwe.kwe_argv = argv;
-      kwe.kwe_data = NULL;
-      kwe.kwe_wordc = 0;
-      kwe.kwe_wordv = NULL;
-      kwe.kwe_last_arg = NULL;
-      kwe.kwe_last_bgpid = 0;
-      kwe.kwe_last_status = 0;
-      kwe.kwe_exec = NULL;
-      kwe.kwe_getenv = NULL;
-      kwe.kwe_setenv = NULL;
+      kwordexp_init(&kwe, argv, argc);
 
       int ret = kwordexp(argv[i], &kwe, 0);
       if (ret != 0) {
