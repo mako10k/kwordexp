@@ -21,7 +21,8 @@
 				"clangd",
 				"libtool",
 				"pkg-config",
-				"libgc-dev"
+				"libgc-dev",
+				"gdb"
 			]
 		}
 	}

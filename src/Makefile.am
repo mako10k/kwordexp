@@ -1,12 +1,19 @@
 datadir = @datadir@
 pkgconfigdir = $(datadir)/pkgconfig
 LIB_VERSION = @LIB_VERSION@
+GC_CFLAGS = @GC_CFLAGS@
+GC_LIBS = @GC_LIBS@
 
 lib_LTLIBRARIES = libkwordexp.la libkio.la libkmalloc.la
 
 libkio_la_SOURCES = kio.c
+
 libkmalloc_la_SOURCES = kmalloc.c
+libkmalloc_la_LIBADD = libkio.la
+
+libkwordexp_la_CFLAGS = $(GC_CFLAGS)
 libkwordexp_la_SOURCES = kwordexp.c
+libkwordexp_la_LIBADD = libkmalloc.la libkio.la $(GC_LIBS)
 
 pkgconfig_DATA = kio.pc kmalloc.pc kwordexp.pc
 

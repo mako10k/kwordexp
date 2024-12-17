@@ -8,3 +8,4 @@ CompileFlags:
         - "-Werror"
         - "-I./include"
         - "-I../include"
+        - "-DHAVE_CONFIG_H"

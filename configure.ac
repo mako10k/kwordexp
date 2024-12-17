@@ -6,11 +6,18 @@ AC_INIT([kwordexp],[0.0.1],[mako10k@mk10.org])
 AC_CONFIG_SRCDIR([src/kwordexp.c])
 AC_CONFIG_HEADERS([config.h])
 
+AC_USE_SYSTEM_EXTENSIONS
+
 AM_INIT_AUTOMAKE([foreign])
 LT_INIT()
 
-AC_ARG_ENABLE([debug], [AS_HELP_STRING([--enable-debug], [Enable debugging])], [debug=$enableval], [debug=no])
-AM_CONDITIONAL([DEBUG], [test "x$debug" = "xyes"])
+AC_ARG_ENABLE([debug],
+              [AS_HELP_STRING(
+                [--enable-debug],
+                [Enable debugging]
+              )],
+              [debug=$enableval],
+              [debug=no])
 if test "x$debug" = "xyes"; then
     AC_DEFINE([DEBUG], [1], [Define to 1 if debugging is enabled])
     CFLAGS="${CFLAGS/-O?/}"
@@ -18,6 +25,16 @@ if test "x$debug" = "xyes"; then
     CFLAGS="${CFLAGS} -O0 -g3"
 fi
 
+AC_ARG_ENABLE([custom-malloc],
+              [AS_HELP_STRING(
+                [--enable-custom-malloc],
+                [EXPERIMENTAL: Enable custom-malloc]
+              )],
+              [custom_malloc=$enableval],
+              [custom_malloc=no])
+if test "x$custom_malloc" = "xyes"; then
+    AC_DEFINE([CUSTOM_MALLOC], [1], [Define to 1 if custom-malloc is enabled])
+fi
 
 # Checks for programs.
 AC_PROG_CC

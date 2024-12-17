@@ -6,6 +6,5 @@ includedir=@includedir@
 Name: kio
 Description: memory IO manipulation
 Version: @PACKAGE_VERSION@
-Requires: kmalloc
-Libs: -L${libdir} -lkio -lkmalloc -Wl,-rpath -Wl,${libdir}
+Libs: -L${libdir} -lkio -Wl,-rpath -Wl,${libdir}
 Cflags: -I${includedir}

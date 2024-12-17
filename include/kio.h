@@ -13,10 +13,16 @@ int kin_close(kin_t *pkin);
 int kin_error(kin_t *pkin);
 int kin_eof(kin_t *pkin);
 
-kout_t* kout_open(FILE *fp, char *obuf, size_t obufsize);
+kout_t *kout_open(FILE *fp, char *obuf, size_t obufsize);
 FILE *kout_getfp(kout_t *pkout);
 int kout_putc(kout_t *pkout, int ch);
 int kout_printf(kout_t *pkout, const char *format, ...);
 int kout_close(kout_t *pkout, char **pbuf, size_t *psize);
+
+int kprintf(int fd, const char *fmt, ...);
+
+int kout_printf(kout_t *pkout, const char *format, ...)
+    __attribute__((format(printf, 2, 3)));
+int kprintf(int fd, const char *fmt, ...) __attribute__((format(printf, 2, 3)));
 
 #endif // __KIO_H__
