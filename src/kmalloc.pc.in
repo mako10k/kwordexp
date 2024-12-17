@@ -7,5 +7,5 @@ Name: kmalloc
 Description: Alternative malloc
 Version: @PACKAGE_VERSION@
 Requires: bdw-gc
-Libs: -L${libdir} -lkmalloc @GC_LIBS@ -Wl,-rpath -Wl,${libdir}
-Cflags: @GC_CFLAGS@ -I${includedir}
+Libs: -L${libdir} -lkmalloc -lgc -Wl,-rpath -Wl,${libdir}
+Cflags: -I${includedir}

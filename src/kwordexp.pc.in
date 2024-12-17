@@ -7,5 +7,5 @@ Name: kwordexp
 Description: Alternative wordexp
 Version: @PACKAGE_VERSION@
 Requires: kio kmalloc bdw-gc
-Libs: -L${libdir} -lkwordexp -lkio -lkmalloc @GC_LIBS@ -Wl,-rpath -Wl,${libdir}
-Cflags: @GC_CFLAGS@ -I${includedir}
+Libs: -L${libdir} -lkwordexp -lkio -lkmalloc -lgc -Wl,-rpath -Wl,${libdir}
+Cflags: -I${includedir}
