@@ -1,5 +1,5 @@
-#include "kmalloc_internal.h"
 #include "kio_internal.h"
+#include "kmalloc_internal.h"
 #include <assert.h>
 #include <errno.h>
 #include <gc.h>
@@ -16,17 +16,9 @@ void *krealloc(void *ptr, size_t size) { return GC_realloc(ptr, size); }
 void kfree(void *ptr) { (void)ptr; }
 char *kstrdup(const char *s) { return GC_strdup(s); }
 
-#ifndef CUSTOM_MALLOC
+#if CUSTOM_MALLOC
 
-// USE SYSTEM ALLOC
-void *malloc(size_t size);
-void *realloc(void *ptr, size_t size);
-void free(void *ptr);
-void *calloc(size_t nmemb, size_t size);
-
-#else
-
-#ifdef DEBUG
+#if DEBUG
 #define km_assert(x) assert(x)
 #define km_debug(fmt, ...) kprintf(STDERR_FILENO, fmt, ##__VA_ARGS__)
 
@@ -41,7 +33,7 @@ typedef struct km_frag km_frag_t;
 typedef int (*km_expand_arena_func_t)(km_arena_t *, size_t);
 
 /** Align of size */
-#define KM_ALIGNSIZE 8
+#define KM_ALIGNSIZE 4
 
 struct km_frag {
   size_t data;
@@ -49,7 +41,6 @@ struct km_frag {
 
 struct km_arena {
   size_t size;
-  size_t idx_search;
   pthread_mutex_t lock;
   km_expand_arena_func_t expand_arena_func;
   km_frag_t pfr[0];
@@ -121,22 +112,6 @@ static void km_arset_frlast(km_arena_t *par, km_frag_t *pfr) {
   km_assert((par->size & (KM_ALIGNSIZE - 1)) == 0);
 }
 
-static km_frag_t *km_arget_frsearch(km_arena_t *par) {
-  km_assert(par != NULL);
-  km_assert(par->idx_search >= sizeof(km_arena_t));
-  km_assert(par->idx_search <= par->size);
-  km_frag_t *pfr_search = (void *)par + par->idx_search;
-  return pfr_search;
-}
-
-static void km_arset_frsearch(km_arena_t *par, km_frag_t *pfr) {
-  km_assert(par != NULL);
-  km_assert(pfr != NULL);
-  km_assert(pfr >= (km_frag_t *)(par + 1));
-  km_assert(pfr <= km_arget_frlast(par));
-  par->idx_search = (void *)pfr - (void *)par;
-}
-
 static void *km_frget_dptr(km_frag_t *pfr) {
   km_assert(pfr != NULL);
   return (void *)(pfr + 1);
@@ -188,14 +163,10 @@ static km_frag_t *km_dptrget_fr(void *dptr) {
   return (km_frag_t *)((void *)dptr - sizeof(km_frag_t));
 }
 
-static km_frag_t *km_arena_init(km_arena_t *par, size_t size,
-                                km_expand_arena_func_t expand_arena_func) {
-  km_debug("%s(%p, %zu, %p)\n", __func__, par, size, expand_arena_func);
-  km_assert(par != NULL);
-  km_assert(size >= sizeof(km_arena_t));
-  km_assert((size & (KM_ALIGNSIZE - 1)) == 0);
+static km_frag_t *
+km_arena_init_internal(km_arena_t *par, size_t size,
+                       km_expand_arena_func_t expand_arena_func) {
   par->size = size;
-  par->idx_search = sizeof(km_arena_t);
   par->expand_arena_func = expand_arena_func;
   par->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
   km_frag_t *pfr = km_arget_frfirst(par);
@@ -203,25 +174,28 @@ static km_frag_t *km_arena_init(km_arena_t *par, size_t size,
   return pfr;
 }
 
+static km_frag_t *km_arena_init(km_arena_t *par, size_t size,
+                                km_expand_arena_func_t expand_arena_func) {
+  km_debug("%s(%p, %zu, %p)\n", __func__, par, size, expand_arena_func);
+  km_assert(par != NULL);
+  km_assert(size >= sizeof(km_arena_t));
+  km_assert((size & (KM_ALIGNSIZE - 1)) == 0);
+  km_frag_t *pfr = km_arena_init_internal(par, size, expand_arena_func);
+  km_debug("%s(%p, %zu, %p) -> %p\n", __func__, par, size, expand_arena_func,
+           pfr);
+  return pfr;
+}
+
 static void *km_arena_alloc_internal(km_arena_t *par, int flags,
                                      size_t dsize_req) {
-  km_assert(par != NULL);
-  km_assert((flags & ~KM_FHFLMASK_USAGE) == 0);
-  km_assert(dsize_req >= 1);
   km_frag_t *pfr_first = km_arget_frfirst(par);
   km_frag_t *pfr_last = km_arget_frlast(par);
-  km_frag_t *pfr_search = km_arget_frsearch(par);
   km_expand_arena_func_t expand_arena_func = par->expand_arena_func;
-
-  if (pfr_search >= pfr_last)
-    pfr_search = pfr_first;
 
   size_t frsize_req = km_dsizeget_frsize(dsize_req);
 
-  km_frag_t *pfr = pfr_search;
+  km_frag_t *pfr = pfr_first;
   size_t frsize;
-
-  km_frag_t *pfr_loopend = pfr_last;
 
   while (1) {
     frsize = km_frget_size(pfr);
@@ -230,29 +204,25 @@ static void *km_arena_alloc_internal(km_arena_t *par, int flags,
       break;
 
     km_frag_t *pfr_next = km_frget_next(pfr);
-    if (pfr_next < pfr_loopend) {
-      if (km_frisinuse(pfr_next)) {
-        pfr = pfr_next;
-        continue;
-      }
-      while (1) {
-        frsize += km_frget_size(pfr_next);
-        if (frsize >= frsize_req)
-          break;
-        pfr_next = km_frget_next(pfr_next);
-        if (pfr_next >= pfr_last)
-          break;
-        if (km_frisinuse(pfr_next))
-          break;
-      }
-      km_frset(pfr, frsize, KM_MHFL_FREE | flags);
+    if (pfr_next >= pfr_last)
+      break;
+
+    if (km_frisinuse(pfr_next)) {
+      pfr = pfr_next;
       continue;
     }
 
-    if (pfr_loopend < pfr_last)
-      break;
-
-    pfr = pfr_first;
+    while (1) {
+      frsize += km_frget_size(pfr_next);
+      if (frsize >= frsize_req)
+        break;
+      pfr_next = km_frget_next(pfr_next);
+      if (pfr_next >= pfr_last)
+        break;
+      if (km_frisinuse(pfr_next))
+        break;
+    }
+    km_frset(pfr, frsize, KM_MHFL_FREE | flags);
   }
 
   if (km_frisfree(pfr) && frsize >= frsize_req) {
@@ -263,7 +233,6 @@ static void *km_arena_alloc_internal(km_arena_t *par, int flags,
     frsize_req = frsize - frsize_req;
     if (frsize_req > 0)
       km_frset(pfr, frsize_req, KM_MHFL_FREE | flags);
-    km_arset_frsearch(par, km_frget_next(pfr));
     return km_frget_dptr(pfr);
   }
 
@@ -288,31 +257,34 @@ static void *km_arena_alloc_internal(km_arena_t *par, int flags,
   if (frsize_req > 0)
     km_frset(pfr, frsize_req, KM_MHFL_FREE | flags);
 
-  km_arset_frsearch(par, km_frget_next(pfr_last));
   return km_frget_dptr(pfr_last);
 }
 
 static void *km_arena_alloc(km_arena_t *par, int flags, size_t dsize_req) {
   km_debug("%s(%p, %d, %zu)\n", __func__, par, flags, dsize_req);
+  km_assert(par != NULL);
+  km_assert((flags & ~KM_FHFLMASK_USAGE) == 0);
+  km_assert(dsize_req >= 1);
   void *dptr = km_arena_alloc_internal(par, flags, dsize_req);
   km_debug("%s(%p, %d, %zu) -> %p\n", __func__, par, flags, dsize_req, dptr);
+  km_assert(dptr == NULL || dptr >= (void *)km_arget_frfirst(par));
+  km_assert(dptr == NULL || dptr < (void *)km_arget_frlast(par));
   return dptr;
+}
+
+static void km_arena_free_internal(void *dptr) {
+  km_frag_t *pfr = km_dptrget_fr(dptr);
+  km_frsetflags(pfr, KM_MHFL_FREE);
 }
 
 static void km_arena_free(void *dptr) {
   km_debug("%s(%p)\n", __func__, dptr);
   km_assert(dptr != NULL);
-  km_frag_t *pfr = km_dptrget_fr(dptr);
-  km_frsetflags(pfr, KM_MHFL_FREE);
+  km_arena_free_internal(dptr);
 }
 
 static void *km_arena_realloc_internal(km_arena_t *par, void *dptr,
                                        size_t dsize_req, int flags) {
-  km_assert(par != NULL);
-  km_assert(dptr != NULL);
-  km_assert((flags & ~KM_FHFLMASK_USAGE) == 0);
-  km_assert(dsize_req >= 1);
-
   km_frag_t *pfr_last = km_arget_frlast(par);
   km_frag_t *pfr = km_dptrget_fr(dptr);
   km_frag_t *pfr_next;
@@ -381,6 +353,10 @@ static void *km_arena_realloc_internal(km_arena_t *par, void *dptr,
 static void *km_arena_realloc(km_arena_t *par, void *dptr, size_t dsize_req,
                               int flags) {
   km_debug("%s(%p, %p, %zu, %d)\n", __func__, par, dptr, dsize_req, flags);
+  km_assert(par != NULL);
+  km_assert(dptr != NULL);
+  km_assert((flags & ~KM_FHFLMASK_USAGE) == 0);
+  km_assert(dsize_req >= 1);
   void *dptr_new = km_arena_realloc_internal(par, dptr, dsize_req, flags);
   km_debug("%s(%p, %p, %zu, %d) -> %p\n", __func__, par, dptr, dsize_req, flags,
            dptr_new);
@@ -394,16 +370,22 @@ static void *km_arena_realloc(km_arena_t *par, void *dptr, size_t dsize_req,
 /** main arena starting pointer */
 static km_arena_t *g_main_arena = NULL;
 
-static int km_maexpand(km_arena_t *par, size_t size) {
-  km_debug("%s(%p, %zu)\n", __func__, par, size);
-  km_assert(par != NULL);
-  km_assert((size & (KM_ALIGNSIZE - 1)) == 0);
+static int km_maexpand_internal(km_arena_t *par, size_t size) {
   void *ptr = sbrk(size);
   if (ptr == (void *)-1)
     return -1;
 
   km_arset_frlast(par, (km_frag_t *)((void *)ptr + size));
   return 0;
+}
+
+static int km_maexpand(km_arena_t *par, size_t size) {
+  km_debug("%s(%p, %zu)\n", __func__, par, size);
+  km_assert(par != NULL);
+  km_assert((size & (KM_ALIGNSIZE - 1)) == 0);
+  int ret = km_maexpand_internal(par, size);
+  km_debug("%s(%p, %zu) -> %d\n", __func__, par, size, ret);
+  return ret;
 }
 
 static void km_mainit(size_t size) {
@@ -610,6 +592,14 @@ void *calloc(size_t nmemb, size_t size) {
     memset(ptr, 0, nmemb * size);
   return ptr;
 }
+
+#else
+
+// USE SYSTEM ALLOC
+void *malloc(size_t size);
+void *realloc(void *ptr, size_t size);
+void free(void *ptr);
+void *calloc(size_t nmemb, size_t size);
 
 #endif
 

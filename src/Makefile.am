@@ -4,7 +4,7 @@ LIB_VERSION = @LIB_VERSION@
 GC_CFLAGS = @GC_CFLAGS@
 GC_LIBS = @GC_LIBS@
 
-lib_LTLIBRARIES = libkwordexp.la libkio.la libkmalloc.la
+lib_LTLIBRARIES = libkio.la libkmalloc.la libkwordexp.la
 
 libkio_la_SOURCES = kio.c
 
