@@ -1,9 +1,9 @@
 #include "kio_internal.h"
+#include "klock.h"
 #include "kmalloc_internal.h"
 #include <assert.h>
 #include <errno.h>
 #include <gc.h>
-#include <pthread.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/mman.h>
@@ -41,7 +41,7 @@ struct km_frag {
 
 struct km_arena {
   size_t size;
-  pthread_mutex_t lock;
+  klock_t lock;
   km_expand_arena_func_t expand_arena_func;
   km_frag_t pfr[0];
 };
@@ -168,7 +168,7 @@ km_arena_init_internal(km_arena_t *par, size_t size,
                        km_expand_arena_func_t expand_arena_func) {
   par->size = size;
   par->expand_arena_func = expand_arena_func;
-  par->lock = (pthread_mutex_t)PTHREAD_MUTEX_INITIALIZER;
+  par->lock = 0;
   km_frag_t *pfr = km_arget_frfirst(par);
   km_frset(pfr, size - sizeof(km_arena_t), KM_MHFL_FREE);
   return pfr;
@@ -394,8 +394,8 @@ static void km_mainit(size_t size) {
   if (g_main_arena != NULL)
     return;
 
-  static pthread_mutex_t lock = PTHREAD_MUTEX_INITIALIZER;
-  pthread_mutex_lock(&lock);
+  static klock_t lock = 0;
+  klock(&lock);
   if (g_main_arena != NULL)
     return;
 
@@ -404,15 +404,16 @@ static void km_mainit(size_t size) {
     return;
 
   km_arena_init(g_main_arena, size, km_maexpand);
-  pthread_mutex_unlock(&lock);
+  kwake(&lock);
 }
+ 
 
 static void *km_mamalloc_internal(size_t dsize_req) {
   km_assert(dsize_req >= 1);
   km_mainit(KM_MASIZE_INITIAL);
-  pthread_mutex_lock(&g_main_arena->lock);
+  klock(&g_main_arena->lock);
   void *dptr = km_arena_alloc(g_main_arena, KM_MHFL_MA, dsize_req);
-  pthread_mutex_unlock(&g_main_arena->lock);
+  kwake(&g_main_arena->lock);
   return dptr;
 }
 
@@ -429,9 +430,9 @@ static void km_mafree(void *dptr) {
   km_assert(g_main_arena != NULL);
   km_assert(km_arget_frfirst(g_main_arena) <= km_dptrget_fr(dptr));
   km_assert(km_dptrget_fr(dptr) < km_arget_frlast(g_main_arena));
-  pthread_mutex_lock(&g_main_arena->lock);
+  klock(&g_main_arena->lock);
   km_arena_free(dptr);
-  pthread_mutex_unlock(&g_main_arena->lock);
+  kwake(&g_main_arena->lock);
 }
 
 static void *km_marealloc_internal(void *dptr, size_t dsize_req) {
@@ -443,9 +444,9 @@ static void *km_marealloc_internal(void *dptr, size_t dsize_req) {
     km_mafree(dptr);
     return NULL;
   }
-  pthread_mutex_lock(&g_main_arena->lock);
+  klock(&g_main_arena->lock);
   void *dptr_new = km_arena_realloc(g_main_arena, dptr, dsize_req, KM_MHFL_MA);
-  pthread_mutex_unlock(&g_main_arena->lock);
+  kwake(&g_main_arena->lock);
   return dptr_new;
 }
 

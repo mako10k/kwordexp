@@ -4,16 +4,18 @@ LIB_VERSION = @LIB_VERSION@
 GC_CFLAGS = @GC_CFLAGS@
 GC_LIBS = @GC_LIBS@
 
-lib_LTLIBRARIES = libkio.la libkmalloc.la libkwordexp.la
+lib_LTLIBRARIES = libkio.la libklock.la libkmalloc.la libkwordexp.la
 
 libkio_la_SOURCES = kio.c
 
 libkmalloc_la_SOURCES = kmalloc.c
-libkmalloc_la_LIBADD = libkio.la
+libkmalloc_la_LIBADD = libkio.la libklock.la
+
+libklock_la_SOURCES = klock.c
 
 libkwordexp_la_CFLAGS = $(GC_CFLAGS)
 libkwordexp_la_SOURCES = kwordexp.c
-libkwordexp_la_LIBADD = libkmalloc.la libkio.la $(GC_LIBS)
+libkwordexp_la_LIBADD = libkmalloc.la libkio.la libklock.la $(GC_LIBS)
 
 pkgconfig_DATA = kio.pc kmalloc.pc kwordexp.pc
 
