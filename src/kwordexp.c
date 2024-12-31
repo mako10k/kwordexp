@@ -686,6 +686,17 @@ kwei_status_t kwei_parse_internal(kwordexp_internal_t *pkwei) {
       break;
     }
 
+    case ')': {
+      int ret = kin_ungetc(pkwei->kwei_pin, ch);
+      if (ret == EOF) {
+        pkwei->kwei_errno = errno;
+        pkwei->kwei_errex = KESYSTEM;
+        pkwei->kwei_status = KSERROR;
+        return KSERROR;
+      }
+    }
+      return KSSUCCESS;
+
     default:
       if (kwei_isspace(ch, pkwei->kwei_ifs)) {
         kwei_status_t kstat = kwei_push_word(pkwei);
