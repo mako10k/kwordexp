@@ -194,6 +194,9 @@ kwei_status_t kwei_parse_var_paren(kwordexp_internal_t *pkwei) {
   kstat = kwei_exec(pkwei, kwei_cmd.kwei_pwe->kwe_wordv, ofp);
   int ret = kout_close(pkout_cmd, NULL, NULL);
   (void)ret;
+  kfree((void *)pkwei->kwei_pwe->kwe_last_arg);
+  pkwei->kwei_pwe->kwe_last_arg =
+      kstrdup(kwei_cmd.kwei_pwe->kwe_argv[kwei_cmd.kwei_pwe->kwe_argc - 1]);
   kwordfree(&kwe_cmd);
   return kstat;
 }
@@ -765,6 +768,12 @@ kwei_status_t kwei_parse_internal(kwordexp_internal_t *pkwei) {
   }
 }
 
+/**
+ * @brief Parse the input string and store the result in the kwordexp_t
+ * structure.
+ * @param pkwei The kwordexp_internal_t structure.
+ * @return KSSUCCESS on success, KSERROR on error.
+ */
 kwei_status_t kwei_parse(kwordexp_internal_t *pkwei) {
   kwei_status_t kstat = kwei_parse_internal(pkwei);
   if (kstat != KSSUCCESS)
